@@ -58,7 +58,7 @@ namespace System.Data.SQLite
         "d8215c18a4349a436dd499e3c385cc683015f886f6c10bd90115eb2bd61b67750839e3a19941dc9c";
 
 #if !PLATFORM_COMPACTFRAMEWORK
-    internal const string DesignerVersion = "1.0.102.0";
+    internal const string DesignerVersion = "1.0.104.0";
 #endif
 
     /// <summary>
@@ -71,7 +71,7 @@ namespace System.Data.SQLite
     protected int _poolVersion;
     private int _cancelCount;
 
-#if (NET_35 || NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461) && !PLATFORM_COMPACTFRAMEWORK
+#if (NET_35 || NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461 || NET_462) && !PLATFORM_COMPACTFRAMEWORK
     private bool _buildingSchema;
 #endif
 
@@ -642,7 +642,8 @@ namespace System.Data.SQLite
 
             if (result == -1) /* database not found */
             {
-                throw new SQLiteException(String.Format(
+                throw new SQLiteException(HelperMethods.StringFormat(
+                    CultureInfo.CurrentCulture,
                     "database \"{0}\" not found", name));
             }
 
@@ -1454,7 +1455,7 @@ namespace System.Data.SQLite
 
               return cmd;
             }
-#if (NET_35 || NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461) && !PLATFORM_COMPACTFRAMEWORK
+#if (NET_35 || NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461 || NET_462) && !PLATFORM_COMPACTFRAMEWORK
             else if (_buildingSchema == false && String.Compare(GetLastError(), 0, "no such table: TEMP.SCHEMA", 0, 26, StringComparison.OrdinalIgnoreCase) == 0)
             {
               strRemain = String.Empty;
@@ -2226,6 +2227,11 @@ namespace System.Data.SQLite
       return nCopied;
     }
 
+    internal override char GetChar(SQLiteStatement stmt, int index)
+    {
+      return Convert.ToChar(GetUInt16(stmt, index));
+    }
+
     internal override long GetChars(SQLiteStatement stmt, int index, int nDataOffset, char[] bDest, int nStart, int nLength)
     {
       int nlen;
@@ -2726,7 +2732,43 @@ namespace System.Data.SQLite
 #endif
 
     /// <summary>
-    /// Enables or disabled extension loading by SQLite.
+    /// Enables or disables a configuration option for the database.
+    /// connection.
+    /// </summary>
+    /// <param name="option">
+    /// The database configuration option to enable or disable.
+    /// </param>
+    /// <param name="bOnOff">
+    /// True to enable loading of extensions, false to disable.
+    /// </param>
+    /// <returns>
+    /// A standard SQLite return code.
+    /// </returns>
+    internal override SQLiteErrorCode SetConfigurationOption(
+        SQLiteConfigDbOpsEnum option,
+        bool bOnOff
+        )
+    {
+        if ((option < SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_FKEY) ||
+            (option > SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION))
+        {
+            throw new SQLiteException(HelperMethods.StringFormat(
+                CultureInfo.CurrentCulture,
+                "unsupported configuration option, must be: {0}, {1}, {2}, or {3}",
+                SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_FKEY,
+                SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_TRIGGER,
+                SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER,
+                SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION));
+        }
+
+        int result = 0; /* NOT USED */
+
+        return UnsafeNativeMethods.sqlite3_db_config_int_refint(
+            _sql, option, (bOnOff ? 1 : 0), ref result);
+    }
+
+    /// <summary>
+    /// Enables or disables extension loading by SQLite.
     /// </summary>
     /// <param name="bOnOff">
     /// True to enable loading of extensions, false to disable.
@@ -2737,11 +2779,9 @@ namespace System.Data.SQLite
 
         if (SQLiteVersionNumber >= 3013000)
         {
-            int result = 0; /* NOT USED */
-
-            n = UnsafeNativeMethods.sqlite3_db_config_int_refint(
-                _sql, SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
-                (bOnOff ? 1 : 0), ref result);
+            n = SetConfigurationOption(
+                SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
+                bOnOff);
         }
         else
         {

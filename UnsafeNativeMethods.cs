@@ -24,6 +24,10 @@ namespace System.Data.SQLite
 
   using System.Runtime.InteropServices;
 
+#if (NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461 || NET_462) && !PLATFORM_COMPACTFRAMEWORK
+  using System.Runtime.Versioning;
+#endif
+
 #if !PLATFORM_COMPACTFRAMEWORK
   using System.Text;
 #endif
@@ -57,6 +61,7 @@ namespace System.Data.SQLite
       internal static int connectionCount;
       internal static int statementCount;
       internal static int backupCount;
+      internal static int blobCount;
 #endif
       #endregion
 
@@ -77,6 +82,15 @@ namespace System.Data.SQLite
       /// "Debug" build configuration.
       /// </summary>
       private static Dictionary<string, int> settingReadCounts;
+
+      /////////////////////////////////////////////////////////////////////////
+
+      /// <summary>
+      /// This dictionary stores the read counts for the runtime configuration
+      /// settings via the XML configuration file.  This information is only
+      /// recorded when compiled in the "Debug" build configuration.
+      /// </summary>
+      private static Dictionary<string, int> settingFileReadCounts;
 #endif
       #endregion
       #endregion
@@ -86,20 +100,24 @@ namespace System.Data.SQLite
       #region Public Methods
 #if DEBUG
       /// <summary>
-      /// Creates the dictionary used to store the read counts for each of the
-      /// runtime configuration settings.  These numbers are used for debugging
-      /// and testing purposes only.
+      /// Creates dictionaries used to store the read counts for each of
+      /// the runtime configuration settings.  These numbers are used for
+      /// debugging and testing purposes only.
       /// </summary>
       public static void InitializeSettingReadCounts()
       {
           lock (staticSyncRoot)
           {
               //
-              // NOTE: Create the list of statistics that will contain the
-              //       number of times each setting value has been read.
+              // NOTE: Create the dictionaries of statistics that will
+              //       contain the number of times each setting value
+              //       has been read.
               //
               if (settingReadCounts == null)
                   settingReadCounts = new Dictionary<string, int>();
+
+              if (settingFileReadCounts == null)
+                  settingFileReadCounts = new Dictionary<string, int>();
           }
       }
 
@@ -113,8 +131,13 @@ namespace System.Data.SQLite
       /// <param name="name">
       /// The name of the setting being read.
       /// </param>
+      /// <param name="viaFile">
+      /// Non-zero if the specified setting is being read from the XML
+      /// configuration file.
+      /// </param>
       public static void IncrementSettingReadCount(
-          string name
+          string name,
+          bool viaFile
           )
       {
           lock (staticSyncRoot)
@@ -122,14 +145,29 @@ namespace System.Data.SQLite
               //
               // NOTE: Update statistics for this setting value.
               //
-              if (settingReadCounts != null)
+              if (viaFile)
               {
-                  int count;
+                  if (settingFileReadCounts != null)
+                  {
+                      int count;
 
-                  if (settingReadCounts.TryGetValue(name, out count))
-                        settingReadCounts[name] = count + 1;
-                  else
-                        settingReadCounts.Add(name, 1);
+                      if (settingFileReadCounts.TryGetValue(name, out count))
+                          settingFileReadCounts[name] = count + 1;
+                      else
+                          settingFileReadCounts.Add(name, 1);
+                  }
+              }
+              else
+              {
+                  if (settingReadCounts != null)
+                  {
+                      int count;
+
+                      if (settingReadCounts.TryGetValue(name, out count))
+                          settingReadCounts[name] = count + 1;
+                      else
+                          settingReadCounts.Add(name, 1);
+                  }
               }
           }
       }
@@ -547,6 +585,37 @@ namespace System.Data.SQLite
       private static readonly string XmlConfigFileName =
           typeof(UnsafeNativeMethods).Namespace + DllFileExtension +
           ConfigFileExtension;
+
+      /////////////////////////////////////////////////////////////////////////
+      /// <summary>
+      /// This is the XML configuratrion file token that will be replaced with
+      /// the qualified path to the directory containing the XML configuration
+      /// file.
+      /// </summary>
+      private static readonly string XmlConfigDirectoryToken =
+          "%PreLoadSQLite_XmlConfigDirectory%";
+      #endregion
+
+      /////////////////////////////////////////////////////////////////////////
+
+      #region Private Constants (Desktop Framework Only)
+#if !PLATFORM_COMPACTFRAMEWORK
+      /// <summary>
+      /// This is the environment variable token that will be replaced with
+      /// the qualified path to the directory containing this assembly.
+      /// </summary>
+      private static readonly string AssemblyDirectoryToken =
+          "%PreLoadSQLite_AssemblyDirectory%";
+
+      /////////////////////////////////////////////////////////////////////////
+      /// <summary>
+      /// This is the environment variable token that will be replaced with an
+      /// abbreviation of the target framework attribute value associated with
+      /// this assembly.
+      /// </summary>
+      private static readonly string TargetFrameworkToken =
+          "%PreLoadSQLite_TargetFramework%";
+#endif
       #endregion
 
       /////////////////////////////////////////////////////////////////////////
@@ -733,6 +802,363 @@ namespace System.Data.SQLite
       }
 
       /////////////////////////////////////////////////////////////////////////
+
+      /// <summary>
+      /// If necessary, replaces all supported XML configuration file tokens
+      /// with their associated values.
+      /// </summary>
+      /// <param name="fileName">
+      /// The name of the XML configuration file being read.
+      /// </param>
+      /// <param name="value">
+      /// A setting value read from the XML configuration file.
+      /// </param>
+      /// <returns>
+      /// The value of the <paramref name="value" /> will all supported XML
+      /// configuration file tokens replaced.  No return value is reserved
+      /// to indicate an error.  This method cannot fail.
+      /// </returns>
+      private static string ReplaceXmlConfigFileTokens(
+          string fileName,
+          string value
+          )
+      {
+          if (!String.IsNullOrEmpty(value))
+          {
+              if (!String.IsNullOrEmpty(fileName))
+              {
+                  try
+                  {
+                      string directory = Path.GetDirectoryName(fileName);
+
+                      if (!String.IsNullOrEmpty(directory))
+                      {
+                          value = value.Replace(
+                              XmlConfigDirectoryToken, directory);
+                      }
+                  }
+#if !NET_COMPACT_20 && TRACE_SHARED
+                  catch (Exception e)
+#else
+                  catch (Exception)
+#endif
+                  {
+#if !NET_COMPACT_20 && TRACE_SHARED
+                      try
+                      {
+                          Trace.WriteLine(HelperMethods.StringFormat(
+                              CultureInfo.CurrentCulture, "Native library " +
+                              "pre-loader failed to replace XML " +
+                              "configuration file \"{0}\" tokens: {1}",
+                              fileName, e)); /* throw */
+                      }
+                      catch
+                      {
+                          // do nothing.
+                      }
+#endif
+                  }
+              }
+          }
+
+          return value;
+      }
+
+      /////////////////////////////////////////////////////////////////////////
+
+      /// <summary>
+      /// Queries and returns the value of the specified setting, using the
+      /// specified XML configuration file.
+      /// </summary>
+      /// <param name="fileName">
+      /// The name of the XML configuration file to read.
+      /// </param>
+      /// <param name="name">
+      /// The name of the setting.
+      /// </param>
+      /// <param name="default">
+      /// The value to be returned if the setting has not been set explicitly
+      /// or cannot be determined.
+      /// </param>
+      /// <param name="expand">
+      /// Non-zero to expand any environment variable references contained in
+      /// the setting value to be returned.  This has no effect on the .NET
+      /// Compact Framework.
+      /// </param>
+      /// <returns>
+      /// The value of the setting -OR- the default value specified by
+      /// <paramref name="default" /> if it has not been set explicitly or
+      /// cannot be determined.
+      /// </returns>
+      private static string GetSettingValueViaXmlConfigFile(
+          string fileName, /* in */
+          string name,     /* in */
+          string @default, /* in */
+          bool expand      /* in */
+          )
+      {
+          try
+          {
+              if ((fileName == null) || (name == null))
+                  return @default;
+
+              XmlDocument document = new XmlDocument();
+
+              document.Load(fileName); /* throw */
+
+              XmlElement element = document.SelectSingleNode(
+                  HelperMethods.StringFormat(CultureInfo.InvariantCulture,
+                  "/configuration/appSettings/add[@key='{0}']", name)) as
+                  XmlElement; /* throw */
+
+              if (element != null)
+              {
+                  string value = null;
+
+                  if (element.HasAttribute("value"))
+                      value = element.GetAttribute("value");
+
+                  if (!String.IsNullOrEmpty(value))
+                  {
+#if !PLATFORM_COMPACTFRAMEWORK
+                      if (expand)
+                          value = Environment.ExpandEnvironmentVariables(value);
+
+                      value = ReplaceEnvironmentVariableTokens(value);
+#endif
+
+                      value = ReplaceXmlConfigFileTokens(fileName, value);
+                  }
+
+                  if (value != null)
+                      return value;
+              }
+          }
+#if !NET_COMPACT_20 && TRACE_SHARED
+          catch (Exception e)
+#else
+          catch (Exception)
+#endif
+          {
+#if !NET_COMPACT_20 && TRACE_SHARED
+              try
+              {
+                  Trace.WriteLine(HelperMethods.StringFormat(
+                      CultureInfo.CurrentCulture, "Native library " +
+                      "pre-loader failed to get setting \"{0}\" value " +
+                      "from XML configuration file \"{1}\": {2}", name,
+                      fileName, e)); /* throw */
+              }
+              catch
+              {
+                  // do nothing.
+              }
+#endif
+          }
+
+          return @default;
+      }
+
+      /////////////////////////////////////////////////////////////////////////
+
+#if !PLATFORM_COMPACTFRAMEWORK
+      /// <summary>
+      /// Attempts to determine the target framework attribute value that is
+      /// associated with the specified managed assembly, if applicable.
+      /// </summary>
+      /// <param name="assembly">
+      /// The managed assembly to read the target framework attribute value
+      /// from.
+      /// </param>
+      /// <returns>
+      /// The value of the target framework attribute value for the specified
+      /// managed assembly -OR- null if it cannot be determined.  If this
+      /// assembly was compiled with a version of the .NET Framework prior to
+      /// version 4.0, the value returned MAY reflect that version of the .NET
+      /// Framework instead of the one associated with the specified managed
+      /// assembly.
+      /// </returns>
+      private static string GetAssemblyTargetFramework(
+          Assembly assembly
+          )
+      {
+          if (assembly != null)
+          {
+#if NET_40 || NET_45 || NET_451 || NET_452 || NET_46 || NET_461 || NET_462
+              try
+              {
+                  if (assembly.IsDefined(
+                          typeof(TargetFrameworkAttribute), false))
+                  {
+                      TargetFrameworkAttribute targetFramework =
+                          (TargetFrameworkAttribute)
+                          assembly.GetCustomAttributes(
+                              typeof(TargetFrameworkAttribute), false)[0];
+
+                      return targetFramework.FrameworkName;
+                  }
+              }
+              catch
+              {
+                  // do nothing.
+              }
+#elif NET_35
+              return ".NETFramework,Version=v3.5";
+#elif NET_20
+              return ".NETFramework,Version=v2.0";
+#endif
+          }
+
+          return null;
+      }
+
+      /////////////////////////////////////////////////////////////////////////
+
+      /// <summary>
+      /// Accepts a long target framework attribute value and makes it into a
+      /// much shorter version, suitable for use with NuGet packages.
+      /// </summary>
+      /// <param name="value">
+      /// The long target framework attribute value to convert.
+      /// </param>
+      /// <returns>
+      /// The short target framework attribute value -OR- null if it cannot
+      /// be determined or converted.
+      /// </returns>
+      private static string AbbreviateTargetFramework(
+          string value
+          )
+      {
+          if (String.IsNullOrEmpty(value))
+              return value;
+
+          value = value.Replace(".NETFramework,Version=v", "net");
+          value = value.Replace(".", String.Empty);
+
+          int index = value.IndexOf(',');
+
+          if (index != -1)
+              value = value.Substring(0, index);
+
+          return value;
+      }
+
+      /////////////////////////////////////////////////////////////////////////
+
+      /// <summary>
+      /// If necessary, replaces all supported environment variable tokens
+      /// with their associated values.
+      /// </summary>
+      /// <param name="value">
+      /// A setting value read from an environment variable.
+      /// </param>
+      /// <returns>
+      /// The value of the <paramref name="value" /> will all supported
+      /// environment variable tokens replaced.  No return value is reserved
+      /// to indicate an error.  This method cannot fail.
+      /// </returns>
+      private static string ReplaceEnvironmentVariableTokens(
+          string value
+          )
+      {
+          if (!String.IsNullOrEmpty(value))
+          {
+              string directory = GetAssemblyDirectory();
+
+              if (!String.IsNullOrEmpty(directory))
+              {
+                  try
+                  {
+                      value = value.Replace(
+                          AssemblyDirectoryToken, directory);
+                  }
+#if !NET_COMPACT_20 && TRACE_SHARED
+                  catch (Exception e)
+#else
+                  catch (Exception)
+#endif
+                  {
+#if !NET_COMPACT_20 && TRACE_SHARED
+                      try
+                      {
+                          Trace.WriteLine(HelperMethods.StringFormat(
+                              CultureInfo.CurrentCulture, "Native library " +
+                              "pre-loader failed to replace assembly " +
+                              "directory token: {0}", e)); /* throw */
+                      }
+                      catch
+                      {
+                          // do nothing.
+                      }
+#endif
+                  }
+              }
+
+              Assembly assembly = null;
+
+              try
+              {
+                  assembly = Assembly.GetExecutingAssembly();
+              }
+#if !NET_COMPACT_20 && TRACE_SHARED
+              catch (Exception e)
+#else
+              catch (Exception)
+#endif
+              {
+#if !NET_COMPACT_20 && TRACE_SHARED
+                  try
+                  {
+                      Trace.WriteLine(HelperMethods.StringFormat(
+                          CultureInfo.CurrentCulture, "Native library " +
+                          "pre-loader failed to obtain executing " +
+                          "assembly: {0}", e)); /* throw */
+                  }
+                  catch
+                  {
+                      // do nothing.
+                  }
+#endif
+              }
+
+              string targetFramework = AbbreviateTargetFramework(
+                  GetAssemblyTargetFramework(assembly));
+
+              if (!String.IsNullOrEmpty(targetFramework))
+              {
+                  try
+                  {
+                      value = value.Replace(
+                          TargetFrameworkToken, targetFramework);
+                  }
+#if !NET_COMPACT_20 && TRACE_SHARED
+                  catch (Exception e)
+#else
+                  catch (Exception)
+#endif
+                  {
+#if !NET_COMPACT_20 && TRACE_SHARED
+                      try
+                      {
+                          Trace.WriteLine(HelperMethods.StringFormat(
+                              CultureInfo.CurrentCulture, "Native library " +
+                              "pre-loader failed to replace target " +
+                              "framework token: {0}", e)); /* throw */
+                      }
+                      catch
+                      {
+                          // do nothing.
+                      }
+#endif
+                  }
+              }
+          }
+
+          return value;
+      }
+#endif
+
+      /////////////////////////////////////////////////////////////////////////
       /// <summary>
       /// Queries and returns the value of the specified setting, using the XML
       /// configuration file and/or the environment variables for the current
@@ -759,6 +1185,21 @@ namespace System.Data.SQLite
           string @default /* in */
           )
       {
+#if !PLATFORM_COMPACTFRAMEWORK
+          //
+          // NOTE: If the special "No_SQLiteGetSettingValue" environment
+          //       variable is set [to anything], this method will always
+          //       return the default value.
+          //
+          if (Environment.GetEnvironmentVariable(
+                "No_SQLiteGetSettingValue") != null)
+          {
+              return @default;
+          }
+#endif
+
+          /////////////////////////////////////////////////////////////////////
+
           if (name == null)
               return @default;
 
@@ -766,16 +1207,23 @@ namespace System.Data.SQLite
 
           #region Debug Build Only
 #if DEBUG
-          DebugData.IncrementSettingReadCount(name);
+          //
+          // NOTE: We are about to read a setting value from the environment
+          //       or possibly from the XML configuration file; create or
+          //       increment the appropriate statistic now.
+          //
+          DebugData.IncrementSettingReadCount(name, false);
 #endif
           #endregion
 
           /////////////////////////////////////////////////////////////////////
 
-          string value = null;
+          bool expand = true; /* SHARED: Environment -AND- XML config file. */
+
+          /////////////////////////////////////////////////////////////////////
 
 #if !PLATFORM_COMPACTFRAMEWORK
-          bool expand = true;
+          string value = null;
 
           if (Environment.GetEnvironmentVariable("No_Expand") != null)
           {
@@ -790,65 +1238,46 @@ namespace System.Data.SQLite
 
           value = Environment.GetEnvironmentVariable(name);
 
-          if (expand && !String.IsNullOrEmpty(value))
-              value = Environment.ExpandEnvironmentVariables(value);
+          if (!String.IsNullOrEmpty(value))
+          {
+              if (expand)
+                  value = Environment.ExpandEnvironmentVariables(value);
+
+              value = ReplaceEnvironmentVariableTokens(value);
+          }
 
           if (value != null)
               return value;
-#endif
 
-          try
+          //
+          // NOTE: If the "No_SQLiteXmlConfigFile" environment variable is
+          //       set [to anything], this method will NEVER read from the
+          //       XML configuration file.
+          //
+          if (Environment.GetEnvironmentVariable(
+                "No_SQLiteXmlConfigFile") != null)
           {
-              string fileName = GetXmlConfigFileName();
-
-              if (fileName == null)
-                  return @default;
-
-              XmlDocument document = new XmlDocument();
-
-              document.Load(fileName);
-
-              XmlElement element = document.SelectSingleNode(
-                  HelperMethods.StringFormat(CultureInfo.InvariantCulture,
-                  "/configuration/appSettings/add[@key='{0}']", name)) as
-                  XmlElement;
-
-              if (element != null)
-              {
-                  if (element.HasAttribute("value"))
-                      value = element.GetAttribute("value");
-
-#if !PLATFORM_COMPACTFRAMEWORK
-                  if (expand && !String.IsNullOrEmpty(value))
-                      value = Environment.ExpandEnvironmentVariables(value);
-#endif
-
-                  if (value != null)
-                      return value;
-              }
+              return @default;
           }
-#if !NET_COMPACT_20 && TRACE_SHARED
-          catch (Exception e)
-#else
-          catch (Exception)
 #endif
-          {
-#if !NET_COMPACT_20 && TRACE_SHARED
-              try
-              {
-                  Trace.WriteLine(HelperMethods.StringFormat(
-                      CultureInfo.CurrentCulture,
-                      "Native library pre-loader failed to get setting " +
-                      "\"{0}\" value: {1}", name, e)); /* throw */
-              }
-              catch
-              {
-                  // do nothing.
-              }
-#endif
-          }
 
-          return @default;
+          /////////////////////////////////////////////////////////////////////
+
+          #region Debug Build Only
+#if DEBUG
+          //
+          // NOTE: We are about to read a setting value from the XML
+          //       configuration file; create or increment the appropriate
+          //       statistic now.
+          //
+          DebugData.IncrementSettingReadCount(name, true);
+#endif
+          #endregion
+
+          /////////////////////////////////////////////////////////////////////
+
+          return GetSettingValueViaXmlConfigFile(
+              GetXmlConfigFileName(), name, @default, expand);
       }
 
       /////////////////////////////////////////////////////////////////////////
@@ -1224,6 +1653,22 @@ namespace System.Data.SQLite
                   //
                   if (File.Exists(fileName))
                   {
+#if !NET_COMPACT_20 && TRACE_DETECTION
+                      try
+                      {
+                          Trace.WriteLine(HelperMethods.StringFormat(
+                              CultureInfo.CurrentCulture,
+                              "Native library pre-loader found native file " +
+                              "name \"{0}\", returning directory \"{1}\" and " +
+                              "sub-directory \"{2}\"...", fileName, directory,
+                              subDirectory)); /* throw */
+                      }
+                      catch
+                      {
+                          // do nothing.
+                      }
+#endif
+
                       baseDirectory = directory;
                       processorArchitecture = subDirectory;
                       return true; /* FOUND */
@@ -1681,9 +2126,7 @@ namespace System.Data.SQLite
     //       System.Data.SQLite functionality (e.g. being able to bind
     //       parameters and handle column values of types Int64 and Double).
     //
-    internal const string SQLITE_DLL = "SQLite.Interop.102.dll";
-#elif MAC
-    internal const string SQLITE_DLL = "sqlite3_included";
+    internal const string SQLITE_DLL = "SQLite.Interop.104.dll";
 #elif SQLITE_STANDARD
     //
     // NOTE: Otherwise, if the standard SQLite library is enabled, use it.
@@ -1804,6 +2247,9 @@ namespace System.Data.SQLite
 
     [DllImport(SQLITE_DLL)]
     internal static extern SQLiteErrorCode sqlite3_backup_finish_interop(IntPtr backup);
+
+    [DllImport(SQLITE_DLL)]
+    internal static extern SQLiteErrorCode sqlite3_blob_close_interop(IntPtr blob);
 
     [DllImport(SQLITE_DLL)]
     internal static extern SQLiteErrorCode sqlite3_open_interop(byte[] utf8Filename, byte[] vfsName, SQLiteOpenFlagsEnum flags, int extFuncs, ref IntPtr db);
@@ -2778,6 +3224,48 @@ namespace System.Data.SQLite
     [DllImport(SQLITE_DLL)]
 #endif
     internal static extern int sqlite3_backup_pagecount(IntPtr backup);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern SQLiteErrorCode sqlite3_blob_close(IntPtr blob);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern int sqlite3_blob_bytes(IntPtr blob);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern SQLiteErrorCode sqlite3_blob_open(IntPtr db, byte[] dbName, byte[] tblName, byte[] colName, long rowId, int flags, ref IntPtr ptrBlob);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern SQLiteErrorCode sqlite3_blob_read(IntPtr blob, [MarshalAs(UnmanagedType.LPArray)] byte[] buffer, int count, int offset);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern SQLiteErrorCode sqlite3_blob_reopen(IntPtr blob, long rowId);
+
+#if !PLATFORM_COMPACTFRAMEWORK
+    [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
+#else
+    [DllImport(SQLITE_DLL)]
+#endif
+    internal static extern SQLiteErrorCode sqlite3_blob_write(IntPtr blob, [MarshalAs(UnmanagedType.LPArray)] byte[] buffer, int count, int offset);
 
 #if !PLATFORM_COMPACTFRAMEWORK
     [DllImport(SQLITE_DLL, CallingConvention = CallingConvention.Cdecl)]
@@ -3848,6 +4336,176 @@ namespace System.Data.SQLite
         public int WasReleasedOk()
         {
             return Interlocked.Decrement(ref DebugData.backupCount);
+        }
+#endif
+
+        ///////////////////////////////////////////////////////////////////////
+
+        public override bool IsInvalid
+        {
+            get
+            {
+#if PLATFORM_COMPACTFRAMEWORK
+                lock (syncRoot)
+#endif
+                {
+                    return (handle == IntPtr.Zero);
+                }
+            }
+        }
+
+        ///////////////////////////////////////////////////////////////////////
+
+#if DEBUG
+        public override string ToString()
+        {
+#if PLATFORM_COMPACTFRAMEWORK
+            lock (syncRoot)
+#endif
+            {
+                return handle.ToString();
+            }
+        }
+#endif
+    }
+    #endregion
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    #region SQLiteBlobHandle Class
+    // Provides finalization support for unmanaged SQLite blob objects.
+    internal sealed class SQLiteBlobHandle : CriticalHandle
+    {
+#if PLATFORM_COMPACTFRAMEWORK
+        internal readonly object syncRoot = new object();
+#endif
+
+        ///////////////////////////////////////////////////////////////////////
+
+        private SQLiteConnectionHandle cnn;
+
+        ///////////////////////////////////////////////////////////////////////
+
+        public static implicit operator IntPtr(SQLiteBlobHandle blob)
+        {
+            if (blob != null)
+            {
+#if PLATFORM_COMPACTFRAMEWORK
+                lock (blob.syncRoot)
+#endif
+                {
+                    return blob.handle;
+                }
+            }
+            return IntPtr.Zero;
+        }
+
+        ///////////////////////////////////////////////////////////////////////
+
+        internal SQLiteBlobHandle(SQLiteConnectionHandle cnn, IntPtr blob)
+            : this()
+        {
+#if PLATFORM_COMPACTFRAMEWORK
+            lock (syncRoot)
+#endif
+            {
+                this.cnn = cnn;
+                SetHandle(blob);
+            }
+        }
+
+        ///////////////////////////////////////////////////////////////////////
+
+        private SQLiteBlobHandle()
+            : base(IntPtr.Zero)
+        {
+#if COUNT_HANDLE
+            Interlocked.Increment(ref DebugData.blobCount);
+#endif
+        }
+
+        ///////////////////////////////////////////////////////////////////////
+
+        protected override bool ReleaseHandle()
+        {
+            try
+            {
+#if !PLATFORM_COMPACTFRAMEWORK
+                IntPtr localHandle = Interlocked.Exchange(
+                    ref handle, IntPtr.Zero);
+
+                if (localHandle != IntPtr.Zero)
+                    SQLiteBase.CloseBlob(cnn, localHandle);
+
+#if !NET_COMPACT_20 && TRACE_HANDLE
+                try
+                {
+                    Trace.WriteLine(HelperMethods.StringFormat(
+                        CultureInfo.CurrentCulture,
+                        "CloseBlob: {0}", localHandle)); /* throw */
+                }
+                catch
+                {
+                }
+#endif
+#else
+                lock (syncRoot)
+                {
+                    if (handle != IntPtr.Zero)
+                    {
+                        SQLiteBase.CloseBlob(cnn, handle);
+                        SetHandle(IntPtr.Zero);
+                    }
+                }
+#endif
+#if COUNT_HANDLE
+                Interlocked.Decrement(ref DebugData.blobCount);
+#endif
+#if DEBUG
+                return true;
+#endif
+            }
+#if !NET_COMPACT_20 && TRACE_HANDLE
+            catch (SQLiteException e)
+#else
+            catch (SQLiteException)
+#endif
+            {
+#if !NET_COMPACT_20 && TRACE_HANDLE
+                try
+                {
+                    Trace.WriteLine(HelperMethods.StringFormat(
+                        CultureInfo.CurrentCulture,
+                        "CloseBlob: {0}, exception: {1}",
+                        handle, e)); /* throw */
+                }
+                catch
+                {
+                }
+#endif
+            }
+            finally
+            {
+#if PLATFORM_COMPACTFRAMEWORK
+                lock (syncRoot)
+#endif
+                {
+                    SetHandleAsInvalid();
+                }
+            }
+#if DEBUG
+            return false;
+#else
+            return true;
+#endif
+        }
+
+        ///////////////////////////////////////////////////////////////////////
+
+#if COUNT_HANDLE
+        public int WasReleasedOk()
+        {
+            return Interlocked.Decrement(ref DebugData.blobCount);
         }
 #endif
 

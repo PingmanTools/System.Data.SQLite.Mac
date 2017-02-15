@@ -271,6 +271,7 @@ namespace System.Data.SQLite
     internal abstract UInt64 GetUInt64(SQLiteStatement stmt, int index);
     internal abstract string GetText(SQLiteStatement stmt, int index);
     internal abstract long GetBytes(SQLiteStatement stmt, int index, int nDataoffset, byte[] bDest, int nStart, int nLength);
+    internal abstract char GetChar(SQLiteStatement stmt, int index);
     internal abstract long GetChars(SQLiteStatement stmt, int index, int nDataoffset, char[] bDest, int nStart, int nLength);
     internal abstract DateTime GetDateTime(SQLiteStatement stmt, int index);
     internal abstract bool IsNull(SQLiteStatement stmt, int index);
@@ -373,7 +374,21 @@ namespace System.Data.SQLite
 #endif
 
     /// <summary>
-    /// Enables or disabled extension loading by SQLite.
+    /// Enables or disables a configuration option for the database.
+    /// connection.
+    /// </summary>
+    /// <param name="option">
+    /// The database configuration option to enable or disable.
+    /// </param>
+    /// <param name="bOnOff">
+    /// True to enable loading of extensions, false to disable.
+    /// </param>
+    /// <returns>
+    /// A standard SQLite return code.
+    /// </returns>
+    internal abstract SQLiteErrorCode SetConfigurationOption(SQLiteConfigDbOpsEnum option, bool bOnOff);
+    /// <summary>
+    /// Enables or disables extension loading by SQLite.
     /// </summary>
     /// <param name="bOnOff">
     /// True to enable loading of extensions, false to disable.
@@ -692,6 +707,32 @@ namespace System.Data.SQLite
         }
     }
 
+    internal static void CloseBlob(SQLiteConnectionHandle hdl, IntPtr blob)
+    {
+        if ((hdl == null) || (blob == IntPtr.Zero)) return;
+
+        try
+        {
+            // do nothing.
+        }
+        finally /* NOTE: Thread.Abort() protection. */
+        {
+#if PLATFORM_COMPACTFRAMEWORK
+            lock (hdl.syncRoot)
+#else
+            lock (hdl)
+#endif
+            {
+#if !SQLITE_STANDARD
+                SQLiteErrorCode n = UnsafeNativeMethods.sqlite3_blob_close_interop(blob);
+#else
+                SQLiteErrorCode n = UnsafeNativeMethods.sqlite3_blob_close(blob);
+#endif
+                if (n != SQLiteErrorCode.Ok) throw new SQLiteException(n, null);
+            }
+        }
+    }
+
     internal static void FinalizeStatement(SQLiteConnectionHandle hdl, IntPtr stmt)
     {
         if ((hdl == null) || (stmt == IntPtr.Zero)) return;
@@ -892,12 +933,12 @@ namespace System.Data.SQLite
   internal enum SQLiteOpenFlagsEnum
   {
     None = 0,
-    ReadOnly = 0x01,
-    ReadWrite = 0x02,
-    Create = 0x04,
+    ReadOnly = 0x1,
+    ReadWrite = 0x2,
+    Create = 0x4,
     Uri = 0x40,
-    SharedCache = 0x01000000,
-    Default = 0x06,
+    Memory = 0x80,
+    Default = ReadWrite | Create,
   }
 
   /// <summary>
@@ -1192,6 +1233,19 @@ namespace System.Data.SQLite
       UseParameterDbTypeForTypeName = 0x2000000000,
 
       /// <summary>
+      /// When returning column values, skip verifying their affinity.
+      /// </summary>
+      NoVerifyTypeAffinity = 0x4000000000,
+
+      /// <summary>
+      /// Allow transactions to be nested.  The outermost transaction still
+      /// controls whether or not any changes are ultimately committed or
+      /// rolled back.  All non-outermost transactions are implemented using
+      /// the SAVEPOINT construct.
+      /// </summary>
+      AllowNestedTransactions = 0x8000000000,
+
+      /// <summary>
       /// When binding parameter values or returning column values, always
       /// treat them as though they were plain text (i.e. no numeric,
       /// date/time, or other conversions should be attempted).
@@ -1262,14 +1316,45 @@ namespace System.Data.SQLite
       DefaultAndLogAll = Default | LogAll
   }
 
-  // These are the options to the internal sqlite3_db_config call.
-  internal enum SQLiteConfigDbOpsEnum
+  /// <summary>
+  /// These are the supported configuration verbs for use with the native
+  /// SQLite library.  They are used with the
+  /// <see cref="SQLiteConnection.SetConfigurationOption" /> method.
+  /// </summary>
+  public enum SQLiteConfigDbOpsEnum
   {
+    /// <summary>
+    /// This value represents an unknown (or invalid) option, do not use it.
+    /// </summary>
     SQLITE_DBCONFIG_NONE = 0, // nil
+
+    /// <summary>
+    /// This option is not currently supported by System.Data.SQLite.  It
+    /// may be supported in the future.
+    /// </summary>
     SQLITE_DBCONFIG_LOOKASIDE = 1001, // void* int int
+
+    /// <summary>
+    /// This option is used to enable or disable the enforcement of
+    /// foreign key constraints.
+    /// </summary>
     SQLITE_DBCONFIG_ENABLE_FKEY = 1002, // int int*
+
+    /// <summary>
+    /// This option is used to enable or disable triggers.
+    /// </summary>
     SQLITE_DBCONFIG_ENABLE_TRIGGER = 1003, // int int*
+
+    /// <summary>
+    /// This option is used to enable or disable the two-argument version
+    /// of the fts3_tokenizer() function which is part of the FTS3 full-text
+    /// search engine extension.
+    /// </summary>
     SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER = 1004, // int int*
+
+    /// <summary>
+    /// This option is used to enable or disable the loading of extensions.
+    /// </summary>
     SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION = 1005 // int int*
   }
 

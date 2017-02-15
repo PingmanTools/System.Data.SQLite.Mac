@@ -24,7 +24,8 @@ namespace System.Data.SQLite
   /// <summary>
   /// This class represents a single value to be returned
   /// from the <see cref="SQLiteDataReader" /> class via
-  /// its <see cref="SQLiteDataReader.GetBoolean" />,
+  /// its <see cref="SQLiteDataReader.GetBlob" />,
+  /// <see cref="SQLiteDataReader.GetBoolean" />,
   /// <see cref="SQLiteDataReader.GetByte" />,
   /// <see cref="SQLiteDataReader.GetBytes" />,
   /// <see cref="SQLiteDataReader.GetChar" />,
@@ -48,6 +49,13 @@ namespace System.Data.SQLite
   /// </summary>
   public sealed class SQLiteDataReaderValue
   {
+      /// <summary>
+      /// The value to be returned from the
+      /// <see cref="SQLiteDataReader.GetBlob" /> method -OR- null to
+      /// indicate an error.
+      /// </summary>
+      public SQLiteBlob BlobValue;
+
       /// <summary>
       /// The value to be returned from the
       /// <see cref="SQLiteDataReader.GetBoolean" /> method -OR- null to
@@ -154,11 +162,75 @@ namespace System.Data.SQLite
 
   /// <summary>
   /// This class represents the parameters that are provided
+  /// to the <see cref="SQLiteDataReader" /> methods, with
+  /// the exception of the column index (provided separately).
+  /// </summary>
+  public abstract class SQLiteReadEventArgs : EventArgs
+  {
+      // nothing.
+  }
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+
+  /// <summary>
+  /// This class represents the parameters that are provided to
+  /// the <see cref="SQLiteDataReader.GetBlob" /> method, with
+  /// the exception of the column index (provided separately).
+  /// </summary>
+  public class SQLiteReadBlobEventArgs : SQLiteReadEventArgs
+  {
+      #region Private Data
+      /// <summary>
+      /// Provides the underlying storage for the
+      /// <see cref="ReadOnly" /> property.
+      /// </summary>
+      private bool readOnly;
+      #endregion
+
+      /////////////////////////////////////////////////////////////////////////
+
+      #region Private Constructors
+      /// <summary>
+      /// Constructs an instance of this class to pass into a user-defined
+      /// callback associated with the <see cref="SQLiteDataReader.GetBlob" />
+      /// method.
+      /// </summary>
+      /// <param name="readOnly">
+      /// The value that was originally specified for the "readOnly"
+      /// parameter to the <see cref="SQLiteDataReader.GetBlob" /> method.
+      /// </param>
+      internal SQLiteReadBlobEventArgs(
+          bool readOnly
+          )
+      {
+          this.readOnly = readOnly;
+      }
+      #endregion
+
+      /////////////////////////////////////////////////////////////////////////
+
+      #region Public Properties
+      /// <summary>
+      /// The value that was originally specified for the "readOnly"
+      /// parameter to the <see cref="SQLiteDataReader.GetBlob" /> method.
+      /// </summary>
+      public bool ReadOnly
+      {
+          get { return readOnly; }
+          set { readOnly = value; }
+      }
+      #endregion
+  }
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+
+  /// <summary>
+  /// This class represents the parameters that are provided
   /// to the <see cref="SQLiteDataReader.GetBytes" /> and
   /// <see cref="SQLiteDataReader.GetChars" /> methods, with
   /// the exception of the column index (provided separately).
   /// </summary>
-  public class SQLiteReadArrayEventArgs : EventArgs
+  public class SQLiteReadArrayEventArgs : SQLiteReadEventArgs
   {
       #region Private Data
       /// <summary>
@@ -344,6 +416,7 @@ namespace System.Data.SQLite
 
   /// <summary>
   /// This class represents the parameters and return values for the
+  /// <see cref="SQLiteDataReader.GetBlob" />,
   /// <see cref="SQLiteDataReader.GetBoolean" />,
   /// <see cref="SQLiteDataReader.GetByte" />,
   /// <see cref="SQLiteDataReader.GetBytes" />,
@@ -360,7 +433,7 @@ namespace System.Data.SQLite
   /// <see cref="SQLiteDataReader.GetString" />, and
   /// <see cref="SQLiteDataReader.GetValue" /> methods.
   /// </summary>
-  public class SQLiteReadValueEventArgs : EventArgs
+  public class SQLiteReadValueEventArgs : SQLiteReadEventArgs
   {
       #region Private Data
       /// <summary>
@@ -371,9 +444,9 @@ namespace System.Data.SQLite
 
       /// <summary>
       /// Provides the underlying storage for the
-      /// <see cref="ArrayEventArgs" /> property.
+      /// <see cref="ExtraEventArgs" /> property.
       /// </summary>
-      private SQLiteReadArrayEventArgs arrayEventArgs;
+      private SQLiteReadEventArgs extraEventArgs;
 
       /// <summary>
       /// Provides the underlying storage for the
@@ -387,18 +460,20 @@ namespace System.Data.SQLite
       #region Private Constructors
       /// <summary>
       /// Constructs a new instance of this class.  Depending on the method
-      /// being called, the <paramref name="arrayEventArgs" /> and/or
+      /// being called, the <paramref name="extraEventArgs" /> and/or
       /// <paramref name="value" /> parameters may be null.
       /// </summary>
       /// <param name="methodName">
       /// The name of the <see cref="SQLiteDataReader" /> method that was
       /// responsible for invoking this callback.
       /// </param>
-      /// <param name="arrayEventArgs">
+      /// <param name="extraEventArgs">
       /// If the <see cref="SQLiteDataReader.GetBytes" /> or
       /// <see cref="SQLiteDataReader.GetChars" /> method is being called,
       /// this object will contain the array related parameters for that
-      /// method.
+      /// method.  If the <see cref="SQLiteDataReader.GetBlob" /> method is
+      /// being called, this object will contain the blob related parameters
+      /// for that method.
       /// </param>
       /// <param name="value">
       /// This may be used by the callback to set the return value for the
@@ -406,12 +481,12 @@ namespace System.Data.SQLite
       /// </param>
       internal SQLiteReadValueEventArgs(
           string methodName,
-          SQLiteReadArrayEventArgs arrayEventArgs,
+          SQLiteReadEventArgs extraEventArgs,
           SQLiteDataReaderValue value
           )
       {
           this.methodName = methodName;
-          this.arrayEventArgs = arrayEventArgs;
+          this.extraEventArgs = extraEventArgs;
           this.value = value;
       }
       #endregion
@@ -434,11 +509,13 @@ namespace System.Data.SQLite
       /// If the <see cref="SQLiteDataReader.GetBytes" /> or
       /// <see cref="SQLiteDataReader.GetChars" /> method is being called,
       /// this object will contain the array related parameters for that
-      /// method.
+      /// method.  If the <see cref="SQLiteDataReader.GetBlob" /> method is
+      /// being called, this object will contain the blob related parameters
+      /// for that method.
       /// </summary>
-      public SQLiteReadArrayEventArgs ArrayEventArgs
+      public SQLiteReadEventArgs ExtraEventArgs
       {
-          get { return arrayEventArgs; }
+          get { return extraEventArgs; }
       }
 
       /////////////////////////////////////////////////////////////////////////
@@ -540,7 +617,7 @@ namespace System.Data.SQLite
       SQLiteConvert convert,
       SQLiteDataReader dataReader,
       SQLiteConnectionFlags flags,
-      SQLiteReadValueEventArgs eventArgs,
+      SQLiteReadEventArgs eventArgs,
       string typeName,
       int index,
       object userData,
@@ -1333,6 +1410,15 @@ namespace System.Data.SQLite
     /// </summary>
     private static SQLiteConnectionFlags _sharedFlags;
 
+    /// <summary>
+    /// The <see cref="SQLiteConnection" /> instance (for this thread) that
+    /// had the most recent call to <see cref="SQLiteConnection.Open" />.
+    /// </summary>
+#if !PLATFORM_COMPACTFRAMEWORK
+    [ThreadStatic()]
+#endif
+    private static SQLiteConnection _lastConnectionInOpen;
+
 #if SQLITE_STANDARD && !PLATFORM_COMPACTFRAMEWORK
     /// <summary>
     /// Used to hold the active library version number of SQLite.
@@ -1358,6 +1444,12 @@ namespace System.Data.SQLite
     /// Nesting level of the transactions open on the connection
     /// </summary>
     internal int _transactionLevel;
+
+    /// <summary>
+    /// Transaction counter for the connection.  Currently, this is only used
+    /// to build SAVEPOINT names.
+    /// </summary>
+    internal int _transactionSequence;
 
     /// <summary>
     /// If this flag is non-zero, the <see cref="Dispose()" /> method will have
@@ -1950,7 +2042,7 @@ namespace System.Data.SQLite
     /// </returns>
     internal bool TryGetCachedSetting(
         string name,     /* in */
-        string @default, /* in */
+        object @default, /* in */
         out object value /* out */
         )
     {
@@ -2379,9 +2471,45 @@ namespace System.Data.SQLite
         bool allowNameOnly
         )
     {
+        return ParseConnectionString(
+            null, connectionString, parseViaFramework, allowNameOnly);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+    /// <summary>
+    /// Parses a connection string into component parts using the custom
+    /// connection string parser.  An exception may be thrown if the syntax
+    /// of the connection string is incorrect.
+    /// </summary>
+    /// <param name="connection">
+    /// The connection that will be using the parsed connection string.
+    /// </param>
+    /// <param name="connectionString">
+    /// The connection string to parse.
+    /// </param>
+    /// <param name="parseViaFramework">
+    /// Non-zero to parse the connection string using the algorithm provided
+    /// by the framework itself.  This is not applicable when running on the
+    /// .NET Compact Framework.
+    /// </param>
+    /// <param name="allowNameOnly">
+    /// Non-zero if names are allowed without values.
+    /// </param>
+    /// <returns>
+    /// The list of key/value pairs corresponding to the parameters specified
+    /// within the connection string.
+    /// </returns>
+    private static SortedList<string, string> ParseConnectionString(
+        SQLiteConnection connection,
+        string connectionString,
+        bool parseViaFramework,
+        bool allowNameOnly
+        )
+    {
         return parseViaFramework ?
-            ParseConnectionStringViaFramework(connectionString, false) :
-            ParseConnectionString(connectionString, allowNameOnly);
+            ParseConnectionStringViaFramework(connection, connectionString, false) :
+            ParseConnectionString(connection, connectionString, allowNameOnly);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2675,8 +2803,19 @@ namespace System.Data.SQLite
       if (isolationLevel != ImmediateIsolationLevel && isolationLevel != DeferredIsolationLevel)
         throw new ArgumentException("isolationLevel");
 
-      SQLiteTransaction transaction =
-          new SQLiteTransaction(this, isolationLevel != ImmediateIsolationLevel);
+      SQLiteTransaction transaction;
+
+      if ((_flags & SQLiteConnectionFlags.AllowNestedTransactions)
+            == SQLiteConnectionFlags.AllowNestedTransactions)
+      {
+          transaction = new SQLiteTransaction2(
+              this, isolationLevel != ImmediateIsolationLevel);
+      }
+      else
+      {
+          transaction = new SQLiteTransaction(
+              this, isolationLevel != ImmediateIsolationLevel);
+      }
 
       OnChanged(this, new ConnectionEventArgs(
           SQLiteConnectionEventType.NewTransaction, null, transaction,
@@ -2723,6 +2862,7 @@ namespace System.Data.SQLite
           SQLiteConnection cnn = new SQLiteConnection();
           cnn._sql = _sql;
           cnn._transactionLevel = _transactionLevel;
+          cnn._transactionSequence = _transactionSequence;
           cnn._enlistment = _enlistment;
           cnn._connectionState = _connectionState;
           cnn._version = _version;
@@ -2740,6 +2880,7 @@ namespace System.Data.SQLite
           _sql = null;
         }
         _transactionLevel = 0;
+        _transactionSequence = 0;
       }
 
       StateChangeEventArgs eventArgs = null;
@@ -2896,6 +3037,37 @@ namespace System.Data.SQLite
     }
 
     /// <summary>
+    /// Determines if the legacy connection string parser should be used.
+    /// </summary>
+    /// <param name="connection">
+    /// The connection that will be using the parsed connection string.
+    /// </param>
+    /// <returns>
+    /// Non-zero if the legacy connection string parser should be used.
+    /// </returns>
+    private static bool ShouldUseLegacyConnectionStringParser(
+        SQLiteConnection connection
+        )
+    {
+        string name = "No_SQLiteConnectionNewParser";
+        object value; /* NOT USED */
+
+        if ((connection != null) &&
+            connection.TryGetCachedSetting(name, null, out value))
+        {
+            return true;
+        }
+
+        if ((connection == null) &&
+            TryGetLastCachedSetting(name, null, out value))
+        {
+            return true;
+        }
+
+        return (UnsafeNativeMethods.GetSettingValue(name, null) != null);
+    }
+
+    /// <summary>
     /// Parses a connection string into component parts using the custom
     /// connection string parser.  An exception may be thrown if the syntax
     /// of the connection string is incorrect.
@@ -2915,6 +3087,33 @@ namespace System.Data.SQLite
         bool allowNameOnly
         )
     {
+        return ParseConnectionString(null, connectionString, allowNameOnly);
+    }
+
+    /// <summary>
+    /// Parses a connection string into component parts using the custom
+    /// connection string parser.  An exception may be thrown if the syntax
+    /// of the connection string is incorrect.
+    /// </summary>
+    /// <param name="connection">
+    /// The connection that will be using the parsed connection string.
+    /// </param>
+    /// <param name="connectionString">
+    /// The connection string to parse.
+    /// </param>
+    /// <param name="allowNameOnly">
+    /// Non-zero if names are allowed without values.
+    /// </param>
+    /// <returns>
+    /// The list of key/value pairs corresponding to the parameters specified
+    /// within the connection string.
+    /// </returns>
+    private static SortedList<string, string> ParseConnectionString(
+        SQLiteConnection connection,
+        string connectionString,
+        bool allowNameOnly
+        )
+    {
       string s = connectionString;
       int n;
       SortedList<string, string> ls = new SortedList<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -2923,7 +3122,7 @@ namespace System.Data.SQLite
       string error = null;
       string[] arParts;
 
-      if (UnsafeNativeMethods.GetSettingValue("No_SQLiteConnectionNewParser", null) != null)
+      if (ShouldUseLegacyConnectionStringParser(connection))
           arParts = SQLiteConvert.Split(s, ';');
       else
           arParts = SQLiteConvert.NewSplit(s, ';', true, ref error);
@@ -2968,6 +3167,9 @@ namespace System.Data.SQLite
     /// connection string parser is always used instead because the framework
     /// provided one is unavailable there.
     /// </summary>
+    /// <param name="connection">
+    /// The connection that will be using the parsed connection string.
+    /// </param>
     /// <param name="connectionString">
     /// The connection string to parse.
     /// </param>
@@ -2978,6 +3180,7 @@ namespace System.Data.SQLite
     /// </param>
     /// <returns>The list of key/value pairs.</returns>
     private static SortedList<string, string> ParseConnectionStringViaFramework(
+        SQLiteConnection connection,
         string connectionString,
         bool strict
         )
@@ -3021,7 +3224,7 @@ namespace System.Data.SQLite
         //       string parser as the built-in (i.e. framework provided) one is
         //       unavailable.
         //
-        return ParseConnectionString(connectionString, false);
+        return ParseConnectionString(connection, connectionString, false);
 #endif
     }
 
@@ -3140,6 +3343,39 @@ namespace System.Data.SQLite
             return false;
         }
 #endif
+    }
+
+    /// <summary>
+    /// Enables or disables a configuration option for the database.
+    /// </summary>
+    /// <param name="option">
+    /// The database configuration option to enable or disable.
+    /// </param>
+    /// <param name="enable">
+    /// True to enable loading of extensions, false to disable.
+    /// </param>
+    public void SetConfigurationOption(
+        SQLiteConfigDbOpsEnum option,
+        bool enable
+        )
+    {
+        CheckDisposed();
+
+        if (_sql == null)
+        {
+            throw new InvalidOperationException(HelperMethods.StringFormat(
+                CultureInfo.CurrentCulture,
+                "Database connection not valid for {0} a configuration option.",
+                enable ? "enabling" : "disabling"));
+        }
+
+        if ((option == SQLiteConfigDbOpsEnum.SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION) &&
+            ((_flags & SQLiteConnectionFlags.NoLoadExtension) == SQLiteConnectionFlags.NoLoadExtension))
+        {
+            throw new SQLiteException("Loading extensions is disabled for this database connection.");
+        }
+
+        _sql.SetConfigurationOption(option, enable);
     }
 
     /// <summary>
@@ -3421,6 +3657,8 @@ namespace System.Data.SQLite
     {
       CheckDisposed();
 
+      _lastConnectionInOpen = this; /* THREAD-SAFE: per-thread datum. */
+
       OnChanged(this, new ConnectionEventArgs(
           SQLiteConnectionEventType.Opening, null, null, null, null, null,
           null, null));
@@ -3431,7 +3669,7 @@ namespace System.Data.SQLite
       Close();
 
       SortedList<string, string> opts = ParseConnectionString(
-          _connectionString, _parseViaFramework, false);
+          this, _connectionString, _parseViaFramework, false);
 
       OnChanged(this, new ConnectionEventArgs(
           SQLiteConnectionEventType.ConnectionString, null, null, null, null,
@@ -4324,6 +4562,41 @@ namespace System.Data.SQLite
     }
 
     /// <summary>
+    /// Queries and returns the value of the specified setting, using the
+    /// cached setting names and values for the last connection that used
+    /// by the <see cref="SQLiteConnection.Open" /> method, when available.
+    /// </summary>
+    /// <param name="name">
+    /// The name of the setting.
+    /// </param>
+    /// <param name="default">
+    /// The value to be returned if the setting has not been set explicitly
+    /// or cannot be determined.
+    /// </param>
+    /// <param name="value">
+    /// The value of the cached setting is stored here if found; otherwise,
+    /// the value of <paramref name="default" /> is stored here.
+    /// </param>
+    /// <returns>
+    /// Non-zero if the cached setting was found; otherwise, zero.
+    /// </returns>
+    private static bool TryGetLastCachedSetting(
+        string name,
+        object @default,
+        out object value
+        )
+    {
+        if (_lastConnectionInOpen == null)
+        {
+            value = @default;
+            return false;
+        }
+
+        return _lastConnectionInOpen.TryGetCachedSetting(
+            name, @default, out value);
+    }
+
+    /// <summary>
     /// The default connection flags to be used for all opened connections
     /// when they are not present in the connection string.
     /// </summary>
@@ -4331,11 +4604,17 @@ namespace System.Data.SQLite
     {
         get
         {
-            object enumValue;
+            string name = "DefaultFlags_SQLiteConnection";
+            object value;
 
-            enumValue = TryParseEnum(typeof(SQLiteConnectionFlags),
-                UnsafeNativeMethods.GetSettingValue(
-                    "DefaultFlags_SQLiteConnection", null), true);
+            if (!TryGetLastCachedSetting(name, null, out value))
+                value = UnsafeNativeMethods.GetSettingValue(name, null);
+
+            if (value == null)
+                return FallbackDefaultFlags;
+
+            object enumValue = TryParseEnum(
+                typeof(SQLiteConnectionFlags), value.ToString(), true);
 
             if (enumValue is SQLiteConnectionFlags)
                 return (SQLiteConnectionFlags)enumValue;
@@ -4871,7 +5150,7 @@ namespace System.Data.SQLite
 
       tbl.BeginLoadData();
       DataRow row;
-         foreach (string word in SR.Keywords.Split(new char[] { ',' }))
+      foreach (string word in SR.Keywords.Split(new char[] { ',' }))
       {
         row = tbl.NewRow();
         row[0] = word;

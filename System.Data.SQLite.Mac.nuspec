@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>System.Data.SQLite.Mac</id>
+    <version>1.0.104.2</version>
+    <title>System.Data.SQLite.Mac</title>
+    <authors>https://system.data.sqlite.org/</authors>
+    <owners>https://system.data.sqlite.org/</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectUrl>https://github.com/PingmanTools/System.Data.SQLite.Mac</projectUrl>
+    <description>ADO.NET Data Provider for SQLite. Modified to work with Xamarin.Mac 4.5 and use an included libsqlite3.dylib file.</description>
+  </metadata>
+  <files>
+    <file src="bin/Release/libsqlite3.dylib"                    target="Content/libsqlite3.dylib" />
+    <file src="bin/Release/System.Data.SQLite.Mac.dll"          target="lib/net45/System.Data.SQLite.Mac.dll" />
+    <file src="bin/Release/System.Data.SQLite.Mac.dll.config"   target="lib/net45/System.Data.SQLite.Mac.dll.config" />
+    <file src="bin/Release/System.Data.SQLite.Mac.xml"          target="lib/net45/System.Data.SQLite.Mac.xml" />
+  </files>
+</package>

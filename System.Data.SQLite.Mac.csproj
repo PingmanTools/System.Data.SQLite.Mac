@@ -37,6 +37,7 @@
     <DefineConstants>MAC;SQLITE_STANDARD;USE_PREPARE_V2;NET_451;PRELOAD_NATIVE_LIBRARY;THROW_ON_DISPOSED;INTEROP_VIRTUAL_TABLE;</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <DocumentationFile>bin\Release\System.Data.SQLite.Mac.xml</DocumentationFile>
     <ConsolePause>false</ConsolePause>
     <EnableCodeSigning>false</EnableCodeSigning>
     <CreatePackage>false</CreatePackage>
@@ -96,11 +97,24 @@
     <Compile Include="LINQ\SQLiteFactory_Linq.cs" />
     <Compile Include="Resources\SR.Designer.cs" />
     <Compile Include="Debug.cs" />
+    <Compile Include="SQLiteBlob.cs" />
+    <Compile Include="SQLiteTransaction2.cs" />
+    <Compile Include="SQLiteTransactionBase.cs" />
   </ItemGroup>
   <ItemGroup>
     <BundleResource Include="Resources\DataTypes.xml" />
     <BundleResource Include="Resources\MetaDataCollections.xml" />
     <BundleResource Include="Resources\SR.resx" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="System.Data.SQLite.Mac.dll.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="libsqlite3.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\Xamarin\Mac\Xamarin.Mac.CSharp.targets" />
 </Project>
